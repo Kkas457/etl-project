@@ -1,0 +1,11 @@
+apache-airflow==2.7.0
+requests
+pandas
+sqlalchemy
+psycopg2-binary
+clickhouse-driver
+lightgbm
+matplotlib
+scikit-learn
+joblib
+mysql-connector-python

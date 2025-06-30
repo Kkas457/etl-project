@@ -1,0 +1,115 @@
+version: '3'
+services:
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Mika2u7w
+      POSTGRES_DB: mrr
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init_files/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mrr"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+  mysql:
+    image: mysql:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: Mika2u7w
+      MYSQL_DATABASE: stg
+      MYSQL_PASSWORD: Mika2u7w
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./init_files/mysql_init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pMika2u7w"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  clickhouse:
+    image: clickhouse/clickhouse-server
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./init_files/clickhouse_users.xml:/etc/clickhouse-server/users.d/custom-users.xml:ro
+      - ./init_files/click_init.sql:/docker-entrypoint-initdb.d/clickhouse-table-creation.sql
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  airflow-init:
+    image: apache/airflow:2.7.0
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__WEBSERVER__SECRET_KEY: Mika2u7w
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:Mika2u7w@postgres/postgres
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    volumes:
+      - ./dags:/opt/airflow/dags
+    entrypoint: ["airflow", "db", "migrate"]
+
+  airflow-webserver:
+    build: .
+    image: airflow-custom
+    restart: always
+    depends_on:
+      - airflow-init
+      - airflow-scheduler
+    environment:
+      AIRFLOW__WEBSERVER__SECRET_KEY: Mika2u7w
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:Mika2u7w@postgres/postgres
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: Mika2u7w
+    volumes:
+      - ./dags:/opt/airflow/dags
+    ports:
+      - "8080:8080"
+    command: webserver
+
+  airflow-scheduler:
+    build: .
+    image: airflow-custom
+    restart: always
+    depends_on:
+      - postgres
+      - airflow-init
+    environment:
+      AIRFLOW__WEBSERVER__SECRET_KEY: Mika2u7w
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:Mika2u7w@postgres/postgres
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    volumes:
+      - ./dags:/opt/airflow/dags
+    command: scheduler
+  
+  backup:
+    image: alpine:latest
+    container_name: db-backup
+    volumes:
+      - ./backups:/backups
+      - ./backup_scripts:/scripts
+    entrypoint: ["/bin/sh", "/scripts/backup_runner.sh"]
+    depends_on:
+      - postgres
+      - mysql
+      - clickhouse
+
+volumes:
+  clickhouse_data:
+  mysql_data:
